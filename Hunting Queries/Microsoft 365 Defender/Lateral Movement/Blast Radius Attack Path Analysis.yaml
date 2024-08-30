@@ -1,32 +1,25 @@
 id: 6d298375-20f7-4d01-a0ff-de1cece89425
 name: Blast radius attack path analysis
 description: |
-  The following query (wrapped in the BlastRadiusAttackPathAnalysis function for easier repeated usage) maps and returns possible attack paths an adversary can take, starting from a device that is affected by a high severity, exploitable vulnerability (a specific CVE can be used to filter results) 
-The function receives as an input:
-  sourceTypes: filter for type of device that can be considered as entry points (e.g. virtual machine, endpoint device) 
-  sourceProperties: filter for properties the above devices must have (e.g. high severity vulnerabilities) 
-  sourceCveIDs: filter for specific vulnerabilities (CVE IDs) the above devices must have 
-  targetTypes: filter for type of device that are considered as the target of the path (e.g. storage account, privileged user, virtual machine, endpoint device) 
-  targetProperties: filter for properties the target devices must have (e.g. critical assets) 
-  maxPathLength: maximum hops for each attack path 
-  resultCountLimit: maximum amount of attack paths calculated 
-requiredDataConnectors:
-- connectorId: MicrosoftThreatProtection
-  dataTypes:
-  - DeviceLogonEvents
+    The following query (wrapped in the BlastRadiusAttackPathAnalysis function for easier repeated usage) maps and returns possible attack paths an adversary can take, starting from a device that is affected by a high severity, exploitable vulnerability (a specific CVE can be used to filter results) 
+    The function receives as an input:
+        sourceTypes: filter for type of device that can be considered as entry points (e.g. virtual machine, endpoint device) 
+        sourceProperties: filter for properties the above devices must have (e.g. high severity vulnerabilities) 
+        sourceCveIDs: filter for specific vulnerabilities (CVE IDs) the above devices must have 
+        targetTypes: filter for type of device that are considered as the target of the path (e.g. storage account, privileged user, virtual machine, endpoint device) 
+        targetProperties: filter for properties the target devices must have (e.g. critical assets) 
+        maxPathLength: maximum hops for each attack path 
+        resultCountLimit: maximum amount of attack paths calculated
 query: |
-  let BlastRadiusAttackPathAnalysis = (sourceTypes: dynamic, sourceProperties: dynamic, sourceCveIDs: dynamic 
-    , targetTypes: dynamic, targetProperties: dynamic 
-    , maxPathLength: long = 6, resultCountLimit: long = 10000)  
-{ 
+    let BlastRadiusAttackPathAnalysis = (sourceTypes: dynamic, sourceProperties: dynamic, sourceCveIDs: dynamic , targetTypes: dynamic, targetProperties: dynamic , maxPathLength: long = 6, resultCountLimit: long = 10000) { 
     let edgeTypes               = pack_array
-                              (
+        (
                                   'can impersonate as',
                                   'has permissions to',
                                   'contains',
                                   'can authenticate as',
                                   'can authenticate to',
-                                  'can remote interactive logon to' ,
+                                  'can remote interactive logon to',
                                   'can interactive logon to',
                                   'can logon over the network to',
                                   'contains',
@@ -40,34 +33,25 @@ query: |
         | project
             NodeId,
             NodeName,
-            NodeLabel 
-            ,
-            SourcePropertiesExtracted = iff(sourceProperties != "[\"\"]", extract_all(sourceNodePropertiesFormatted, tostring(NodeProperties)), pack_array('')) 
-            ,
-            TargetPropertiesExtracted = iff(targetProperties != "[\"\"]", extract_all(targetNodePropertiesFormatted, tostring(NodeProperties)), pack_array('')) 
-            ,
+            NodeLabel,
+            SourcePropertiesExtracted = iff(sourceProperties != "[\"\"]", extract_all(sourceNodePropertiesFormatted, tostring(NodeProperties)), pack_array('')),
+            TargetPropertiesExtracted = iff(targetProperties != "[\"\"]", extract_all(targetNodePropertiesFormatted, tostring(NodeProperties)), pack_array('')),
             criticalityLevel = toint(NodeProperties.rawData.criticalityLevel.criticalityLevel) 
         | mv-apply SourcePropertiesExtracted, TargetPropertiesExtracted on ( 
             summarize
-                SourcePropertiesExtracted = make_set_if(SourcePropertiesExtracted, isnotempty(SourcePropertiesExtracted)) 
-                ,
+                SourcePropertiesExtracted = make_set_if(SourcePropertiesExtracted, isnotempty(SourcePropertiesExtracted)),
                 TargetPropertiesExtracted = make_set_if(TargetPropertiesExtracted, isnotempty(TargetPropertiesExtracted)) 
             ) 
         | extend
-            CountSourceProperties = coalesce(array_length(SourcePropertiesExtracted), 0) 
-            ,
+            CountSourceProperties = coalesce(array_length(SourcePropertiesExtracted), 0) ,
             CountTargetProperties = coalesce(array_length(TargetPropertiesExtracted), 0) 
         | extend
-            SourceRelevancyByLabel = iff(NodeLabel in (sourceTypes) or sourceTypes == "[\"\"]", 1, 0) 
-            ,
-            TargetRelevancyByLabel = iff(NodeLabel in (targetTypes) or targetTypes == "[\"\"]", 1, 0) 
-            ,
-            SourceRelevancyByProperties = iff(CountSourceProperties > 0 or sourceProperties == "[\"\"]", 1, 0) 
-            ,
+            SourceRelevancyByLabel = iff(NodeLabel in (sourceTypes) or sourceTypes == "[\"\"]", 1, 0) ,
+            TargetRelevancyByLabel = iff(NodeLabel in (targetTypes) or targetTypes == "[\"\"]", 1, 0) ,
+            SourceRelevancyByProperties = iff(CountSourceProperties > 0 or sourceProperties == "[\"\"]", 1, 0) ,
             TargetRelevancyByProperties = iff(CountTargetProperties > 0 or targetProperties == "[\"\"]", 1, 0) 
         | extend
-            SourceRelevancy = iff(SourceRelevancyByLabel == 1 and SourceRelevancyByProperties == 1, 1, 0) 
-            ,
+            SourceRelevancy = iff(SourceRelevancyByLabel == 1 and SourceRelevancyByProperties == 1, 1, 0) ,
             TargetRelevancy = iff(TargetRelevancyByLabel == 1 and TargetRelevancyByProperties == 1, 1, 0) 
         ); 
     let edges = ( 
@@ -92,7 +76,8 @@ query: |
     let paths = ( 
         edges 
         // Build the graph from all the nodes and edges and enrich it with node data (properties) 
-        | make-graph SourceNodeId --> TargetNodeId with nodes on NodeId 
+        | make-graph
+            SourceNodeId--> TargetNodeId with nodes on NodeId 
         // Look for existing paths between source nodes and target nodes with up to predefined number of hops 
         | graph-match cycles=none (s)-[e*1 .. maxPathLength]->(t) 
             // Filter only by paths with relevant sources and targets - filtered by node types and properties 
@@ -128,21 +113,17 @@ query: |
         // Wrap the path into meaningful format (can be tweaked as needed) 
         | mv-expand with_itemindex = SortIndex
             EdgeIds to typeof(string),
-            EdgeLabels to typeof(string) 
-            ,
+            EdgeLabels to typeof(string),
             NodesInPath to typeof(string),
             NodeLabelsInPath to typeof(string) 
         | sort by PathId, SortIndex asc 
         | extend step = strcat
-                ( 
-                    iff(isnotempty(NodesInPath), strcat('(', NodeLabelsInPath, ' ', SourceName, ':', NodesInPath, ')'), '') 
-            ,
-                    iff(CountSourceProperties > 0 and NodesInPath == SourceId, SourceProperties, '') 
-            ,
-                    iff(CountTargetProperties > 0 and NodesInPath == TargetId, TargetProperties, '') 
-            ,
-                    iff(isnotempty(EdgeLabels), strcat('-', EdgeLabels, '->'), '')
-                ) 
+            ( 
+                            iff(isnotempty(NodesInPath), strcat('(', NodeLabelsInPath, ' ', SourceName, ':', NodesInPath, ')'), '') ,
+                            iff(CountSourceProperties > 0 and NodesInPath == SourceId, SourceProperties, '') ,
+                            iff(CountTargetProperties > 0 and NodesInPath == TargetId, TargetProperties, '') ,
+                            iff(isnotempty(EdgeLabels), strcat('-', EdgeLabels, '->'), '')
+            ) 
         | summarize Path = make_list(step), take_any(*) by PathId 
         // Project relevant fields 
         | project
@@ -151,28 +132,26 @@ query: |
             SourceId,
             SourceProperties,
             CountSourceProperties,
-            SourceRelevancy 
-            ,
+            SourceRelevancy,
             TargetName,
             TargetType,
             TargetId,
             TargetProperties,
             CountTargetProperties,
-            TargetRelevancy 
-            ,
+            TargetRelevancy,
             PathId,
             PathLength,
             Path 
         | top resultCountLimit by PathLength asc 
         ); 
     relevantPaths 
-}; 
-// Calling the function
-let sourceTypes         = pack_array('microsoft.compute/virtualmachines', 'compute.instances', 'ec2.instance', 'device', 'container-image', 'microsoft.hybridcompute/machines'); 
-let sourceProperties    = pack_array('hasHighOrCritical'); // filter for assets with severe vulnerabilities 
-let sourceCveIDs        = pack_array('CVE-2024-6387'); // filter for entry points with the CVE, in this example it's OpenSSH regSSHion vulnerability
-let targetTypes         = pack_array('');  
-let targetProperties    = pack_array('criticalityLevel'); // filter for paths that ends with critical assets 
-BlastRadiusAttackPathAnalysis(sourceTypes, sourceProperties, sourceCveIDs, targetTypes, targetProperties) 
-| project-reorder SourceType, SourceName, TargetType, TargetName, Path 
-| project-keep SourceType, SourceName, TargetType, TargetName, Path 
+    }; 
+    // Calling the function
+    let sourceTypes         = pack_array('microsoft.compute/virtualmachines', 'compute.instances', 'ec2.instance', 'device', 'container-image', 'microsoft.hybridcompute/machines'); 
+    let sourceProperties    = pack_array('hasHighOrCritical'); // filter for assets with severe vulnerabilities 
+    let sourceCveIDs        = pack_array('CVE-2024-6387'); // filter for entry points with the CVE, in this example it's OpenSSH regSSHion vulnerability
+    let targetTypes         = pack_array('');  
+    let targetProperties    = pack_array('criticalityLevel'); // filter for paths that ends with critical assets 
+    BlastRadiusAttackPathAnalysis(sourceTypes, sourceProperties, sourceCveIDs, targetTypes, targetProperties) 
+    | project-reorder SourceType, SourceName, TargetType, TargetName, Path 
+    | project-keep SourceType, SourceName, TargetType, TargetName, Path 
